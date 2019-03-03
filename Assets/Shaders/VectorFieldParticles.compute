@@ -1,0 +1,82 @@
+﻿//By Jake Rodelius
+
+#pragma kernel CSLifetime
+#pragma kernel CSSpiral
+#pragma kernel CSEyes
+#pragma kernel CSOpticalIllusion
+#pragma kernel CSRepel
+
+struct Particle
+{
+	float3 position;
+	float3 initialPosition;
+	float life;
+};
+
+//Set Once
+float particleLifetime;
+float repelRadius;
+float repelPower;
+
+//Set Often
+float deltaTime;
+float3 repelPosition;
+
+//Buffers
+RWStructuredBuffer<Particle> particleBuffer;
+
+[numthreads(256, 1, 1)] //1D of 256 threads
+void CSLifetime (uint3 id : SV_DispatchThreadID)
+{
+	particleBuffer[id.x].life -= deltaTime;
+
+	if (particleBuffer[id.x].life < 0) //if checks are bad for the gpu but this one is needed for this functionality
+	{
+		particleBuffer[id.x].life += particleLifetime; //+= retains particle life differentiation
+		particleBuffer[id.x].position = particleBuffer[id.x].initialPosition; //going back to its original random location is less math than a new random location and looks about the same
+	}
+}
+
+//State Kernels
+[numthreads(256, 1, 1)] //1D of 256 threads
+void CSSpiral (uint3 id : SV_DispatchThreadID)
+{
+	float3 p = particleBuffer[id.x].position;
+	float len = length(p);
+
+	particleBuffer[id.x].position.x += cos(len) * deltaTime;
+	particleBuffer[id.x].position.y += sin(len) * deltaTime;
+}
+
+[numthreads(256, 1, 1)] //1D of 256 threads
+void CSEyes (uint3 id : SV_DispatchThreadID)
+{
+	float3 p = particleBuffer[id.x].position;
+	float len = length(p);
+
+	//This vectorfield was found with a random vectorfield generator, then cleaned up a bit
+	particleBuffer[id.x].position.x += max(len, p.y)*sin(p.y) * deltaTime;
+	particleBuffer[id.x].position.y += cos(len*sin(p.x)) * deltaTime;
+}
+
+[numthreads(256, 1, 1)] //1D of 256 threads
+void CSOpticalIllusion (uint3 id : SV_DispatchThreadID)
+{
+	float3 p = particleBuffer[id.x].position;
+	float len = length(p);
+
+	//This vectorfield was found with a random vectorfield generator, then cleaned up a bit
+	particleBuffer[id.x].position.x += cos(sin((min(p.x, exp(p.x)) - p.y))) * deltaTime;
+	particleBuffer[id.x].position.y += sin((p.y - min(len, p.y))*max(p.y, len)) * deltaTime;
+}
+
+//Interactions Kernel
+[numthreads(256, 1, 1)] //1D of 256 threads
+void CSRepel (uint3 id : SV_DispatchThreadID)
+{
+	float2 p = particleBuffer[id.x].position.xy;
+	float2 dif = p - repelPosition;
+
+	particleBuffer[id.x].position.xy += dif * repelPower * deltaTime *
+		max(1.0f-length(dif)/repelRadius, 0.0f); //anything outside radius makes this a 0, within radius it is more powerful closer to the middle
+}
